@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Urban 3D Temporal Scaling Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <!-- Your custom CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Left panel: map -->
+    <div id="map-panel">
+      <div id="map"></div>
+    </div>
+
+    <!-- Right panel: info + figure -->
+    <div id="info-panel">
+      <div id="city-header">
+        <h1 id="city-name">Select a city</h1>
+        <div id="city-meta"></div>
+      </div>
+
+      <div id="metrics">
+        <div><strong>fid:</strong> <span id="m-fid">-</span></div>
+        <div><strong>beta_A:</strong> <span id="m-betaA">-</span></div>
+        <div><strong>beta_V:</strong> <span id="m-betaV">-</span></div>
+        <div><strong>beta_h:</strong> <span id="m-betah">-</span></div>
+        <div><strong>n_points:</strong> <span id="m-npoints">-</span></div>
+      </div>
+
+      <div id="mode-switch">
+        <button id="btn-static" class="mode-btn active">Static figure</button>
+        <button id="btn-interactive" class="mode-btn">Interactive 3D</button>
+      </div>
+
+      <div id="plot-container">
+        <!-- Static SVG -->
+        <img id="city-plot" src="assets/placeholder.svg" alt="City plot">
+
+        <!-- Interactive Plotly -->
+        <div id="plotly-plot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Plotly JS -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <!-- Your custom JS -->
+  <script src="app.js"></script>
+</body>
+</html>
