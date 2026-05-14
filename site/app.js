@@ -1,15 +1,3 @@
-const BIVAR_COLORS = {
-  "0-0": "#f2f2f2",
-  "1-0": "#9ecae1",
-  "2-0": "#2171b5",
-  "0-1": "#f4a6a6",
-  "1-1": "#bcbddc",
-  "2-1": "#756bb1",
-  "0-2": "#e31a1c",
-  "1-2": "#c51b8a",
-  "2-2": "#000000"
-};
-
 // =========================
 // Global state
 // =========================
@@ -18,6 +6,53 @@ let cityLayer = null;
 let currentProps = null;
 let currentMode = 'static';
 const plotlyCache = new Map();
+
+const NO_DATA_COLOR = '#bdbdbd';
+
+// Same logical order as the Python code:
+// signs = [">", "=", "<"]
+// [(a, v) for a in signs for v in signs]
+const REGIME_KEY_ORDER = [
+  'A>_V>',
+  'A>_V=',
+  'A>_V<',
+  'A=_V>',
+  'A=_V=',
+  'A=_V<',
+  'A<_V>',
+  'A<_V=',
+  'A<_V<'
+];
+
+// =========================
+// Helpers
+// =========================
+function fmt2(x) {
+  if (x === null || x === undefined || x === '' || Number.isNaN(Number(x))) {
+    return '-';
+  }
+  return Number(x).toFixed(2);
+}
+
+function regimeLabelFromKey(key) {
+  if (!key || key === 'No data') {
+    return 'No data';
+  }
+
+  const m = key.match(/^A([<>=])_V([<>=])$/);
+  if (!m) {
+    return key;
+  }
+
+  const relA = m[1];
+  const relV = m[2];
+
+  return `βA ${relA} 1, βV ${relV} 1`;
+}
+
+function cityColorFromProps(props) {
+  return props.color || props.regime_color || NO_DATA_COLOR;
+}
 
 // =========================
 // Map
@@ -42,10 +77,12 @@ const DEFAULT_RADIUS = 4;
 const SELECTED_RADIUS = 7;
 
 function defaultPointStyle(feature) {
+  const p = feature.properties || {};
+
   return {
     renderer: cityRenderer,
     radius: DEFAULT_RADIUS,
-    fillColor: feature.properties.color || '#666666',
+    fillColor: cityColorFromProps(p),
     color: '#4d4d4d',
     weight: 0.6,
     opacity: 1,
@@ -55,10 +92,11 @@ function defaultPointStyle(feature) {
 }
 
 function resetLayerStyle(layer) {
-  const p = layer.feature.properties;
+  const p = layer.feature.properties || {};
+
   layer.setStyle({
     radius: DEFAULT_RADIUS,
-    fillColor: p.color || '#666666',
+    fillColor: cityColorFromProps(p),
     color: '#4d4d4d',
     weight: 0.6,
     opacity: 1,
@@ -103,12 +141,9 @@ function updateInfo(props) {
   document.getElementById('city-meta').textContent = props.country || '';
 
   document.getElementById('m-fid').textContent = props.fid ?? '-';
-  document.getElementById('m-betaA').textContent =
-    props.beta_A != null ? Number(props.beta_A).toFixed(2) : '-';
-  document.getElementById('m-betaV').textContent =
-    props.beta_V != null ? Number(props.beta_V).toFixed(2) : '-';
-  document.getElementById('m-betah').textContent =
-    props.beta_h != null ? Number(props.beta_h).toFixed(2) : '-';
+  document.getElementById('m-betaA').textContent = fmt2(props.beta_A);
+  document.getElementById('m-betaV').textContent = fmt2(props.beta_V);
+  document.getElementById('m-betah').textContent = fmt2(props.beta_h);
   document.getElementById('m-npoints').textContent = props.n_points ?? '-';
 
   document.getElementById('city-plot').src = `plots/${props.fid}.svg`;
@@ -138,6 +173,7 @@ function clearInfo() {
 
   const plotDiv = document.getElementById('plotly-plot');
   plotDiv.innerHTML = '';
+
   if (window.Plotly) {
     Plotly.purge(plotDiv);
   }
@@ -330,14 +366,17 @@ async function loadPlotlyFigure(fid) {
 // City interactions
 // =========================
 function onEachCity(feature, layer) {
-  const p = feature.properties;
+  const p = feature.properties || {};
+  const regimeKey = p.regime_key || p.beta_group || 'No data';
+  const regimeLabel = regimeLabelFromKey(regimeKey);
 
   layer.bindPopup(`
-    <strong>${p.city}</strong><br>
-    ${p.country}<br>
-    beta_A = ${Number(p.beta_A).toFixed(2)}<br>
-    beta_V = ${Number(p.beta_V).toFixed(2)}<br>
-    beta_h = ${Number(p.beta_h).toFixed(2)}
+    <strong>${p.city || 'Unknown city'}</strong><br>
+    ${p.country || ''}<br>
+    beta_A = ${fmt2(p.beta_A)}<br>
+    beta_V = ${fmt2(p.beta_V)}<br>
+    beta_h = ${fmt2(p.beta_h)}<br>
+    Regime: ${regimeLabel}
   `);
 
   layer.on('mouseover', () => {
@@ -368,32 +407,58 @@ map.on('click', () => {
 // =========================
 // Legend
 // =========================
-function addLegend() {
+function addLegend(cityData) {
+  const counts = {};
+  const colors = {};
+
+  cityData.features.forEach(feature => {
+    const p = feature.properties || {};
+    const key = p.regime_key || p.beta_group || 'No data';
+
+    if (!key || key === 'No data') {
+      return;
+    }
+
+    counts[key] = (counts[key] || 0) + 1;
+    colors[key] = p.regime_color || p.color || NO_DATA_COLOR;
+  });
+
+  const keys = Object.keys(counts).sort((a, b) => {
+    const countDiff = counts[b] - counts[a];
+
+    if (countDiff !== 0) {
+      return countDiff;
+    }
+
+    const ia = REGIME_KEY_ORDER.indexOf(a);
+    const ib = REGIME_KEY_ORDER.indexOf(b);
+
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
   const legend = L.control({ position: 'bottomleft' });
 
   legend.onAdd = function () {
     const div = L.DomUtil.create('div', 'legend-box');
 
-    const yOrder = [2, 1, 0];
-    const xOrder = [0, 1, 2];
+    let rows = '';
 
-    let gridHTML = '<div class="bivar-legend-grid">';
-    for (const h of yOrder) {
-      for (const a of xOrder) {
-        const color = BIVAR_COLORS[`${a}-${h}`];
-        gridHTML += `<div style="width:18px;height:18px;background:${color};border:1px solid #ffffff;"></div>`;
-      }
-    }
-    gridHTML += '</div>';
+    keys.forEach(key => {
+      const label = regimeLabelFromKey(key);
+      const color = colors[key] || NO_DATA_COLOR;
+      const count = counts[key];
+
+      rows += `
+        <div class="beta-legend-row">
+          <span class="beta-legend-swatch" style="background:${color};"></span>
+          <span class="beta-legend-label">${label}</span>
+        </div>
+      `;
+    });
 
     div.innerHTML = `
-      <div class="legend-y-wrap">
-        <div class="legend-y legend-labels">Higher beta_h</div>
-        <div>
-          ${gridHTML}
-          <div class="legend-x legend-labels">Higher beta_A →</div>
-        </div>
-      </div>
+      <div class="legend-title">Beta regimes</div>
+      ${rows}
     `;
 
     L.DomEvent.disableClickPropagation(div);
@@ -408,7 +473,7 @@ function addLegend() {
 // =========================
 Promise.all([
   fetch('data/world.geojson').then(r => r.json()),
-  fetch('data/cities.geojson').then(r => r.json())
+  fetch('data/cities.geojson?v=20260514').then(r => r.json())
 ]).then(([worldData, cityData]) => {
 
   L.geoJSON(worldData, {
@@ -433,7 +498,7 @@ Promise.all([
     map.fitBounds(bounds.pad(0.05));
   }
 
-  addLegend();
+  addLegend(cityData);
   clearInfo();
   setMode('static');
 
